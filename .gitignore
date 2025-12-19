@@ -1,5 +1,5 @@
-# Binary
-cub-compose
+# Binary (root level only)
+/cub-compose
 
 # Dependencies (vendored SDK)
 .deps/
