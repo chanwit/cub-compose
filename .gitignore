@@ -1,0 +1,9 @@
+# Binary
+cub-compose
+
+# Dependencies (vendored SDK)
+.deps/
+
+# Examples (not part of core project)
+examples/
+configs.yaml.example
