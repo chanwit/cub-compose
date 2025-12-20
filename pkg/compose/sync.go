@@ -74,6 +74,67 @@ type TokenData struct {
 	RefreshToken string `json:"refreshToken,omitempty"`
 }
 
+// ContextInfo contains information about the current context
+type ContextInfo struct {
+	ContextName      string
+	ServerURL        string
+	OrganizationName string
+	User             string
+}
+
+// GetContextInfo loads and returns the current context information
+func GetContextInfo() (*ContextInfo, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	configPath := filepath.Join(home, configHubDir, "config.yaml")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cub config (run 'cub auth login' first): %w", err)
+	}
+
+	var config CubConfig
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse cub config: %w", err)
+	}
+
+	// Find the current context
+	var currentCtx *CubContext
+	for i := range config.Contexts {
+		if config.Contexts[i].Name == config.CurrentContext {
+			currentCtx = &config.Contexts[i]
+			break
+		}
+	}
+	if currentCtx == nil {
+		return nil, fmt.Errorf("current context %q not found in config", config.CurrentContext)
+	}
+
+	serverURL := currentCtx.Coordinate.ServerURL
+	if serverURL == "" {
+		serverURL = defaultServerURL
+	}
+
+	orgName := currentCtx.Metadata.OrganizationName
+	if orgName == "" {
+		orgName = currentCtx.Coordinate.OrganizationID
+	}
+
+	user := currentCtx.Coordinate.User
+	if user == "" {
+		user = "(not set)"
+	}
+
+	return &ContextInfo{
+		ContextName:      currentCtx.Name,
+		ServerURL:        serverURL,
+		OrganizationName: orgName,
+		User:             user,
+	}, nil
+}
+
 // Syncer handles synchronization with ConfigHub
 type Syncer struct {
 	client    *goclientnew.ClientWithResponses
@@ -143,6 +204,20 @@ func NewSyncer() (*Syncer, error) {
 		client:    client,
 		serverURL: serverURL,
 	}, nil
+}
+
+// TestConnection tests the API connection by listing spaces
+func (s *Syncer) TestConnection(ctx context.Context) error {
+	resp, err := s.client.ListSpacesWithResponse(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("API request failed: %w", err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("unexpected status: %s", resp.Status())
+	}
+
+	return nil
 }
 
 // SyncUp creates or updates spaces and units in ConfigHub

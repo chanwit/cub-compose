@@ -30,6 +30,7 @@ Authentication uses existing cub CLI credentials from ~/.confighub/`,
 
 	rootCmd.AddCommand(newUpCmd())
 	rootCmd.AddCommand(newDownCmd())
+	rootCmd.AddCommand(newStatusCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
