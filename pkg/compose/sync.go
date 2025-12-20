@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -19,6 +20,19 @@ const (
 	configHubDir     = ".confighub"
 	defaultServerURL = "https://hub.confighub.com"
 )
+
+// resolveTokenPath resolves a token file path, handling ~ prefix like the SDK does
+func resolveTokenPath(home, tokenFile string) string {
+	if filepath.IsAbs(tokenFile) {
+		return tokenFile
+	}
+	// Handle ~ prefix (e.g., ~/.confighub/tokens/context.json)
+	if strings.HasPrefix(tokenFile, "~") {
+		return filepath.Join(home, tokenFile[1:])
+	}
+	// Default to tokens directory with just the filename
+	return filepath.Join(home, configHubDir, "tokens", filepath.Base(tokenFile))
+}
 
 // CubConfig represents the cub CLI config structure
 type CubConfig struct {
@@ -96,8 +110,8 @@ func NewSyncer() (*Syncer, error) {
 		return nil, fmt.Errorf("current context %q not found in config", config.CurrentContext)
 	}
 
-	// Load the token
-	tokenPath := filepath.Join(home, configHubDir, "tokens", currentCtx.Metadata.TokenFile)
+	// Load the token - handle ~ prefix like the SDK does
+	tokenPath := resolveTokenPath(home, currentCtx.Metadata.TokenFile)
 	tokenData, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read token (run 'cub auth login' first): %w", err)
