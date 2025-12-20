@@ -131,10 +131,16 @@ func NewSyncer() (*Syncer, error) {
 	}, nil
 }
 
-// SyncUp creates or updates units in ConfigHub
-func (s *Syncer) SyncUp(ctx context.Context, units []pkgconfig.ResolvedUnit) error {
+// SyncUp creates or updates spaces and units in ConfigHub
+func (s *Syncer) SyncUp(ctx context.Context, spaces []pkgconfig.ResolvedSpace, units []pkgconfig.ResolvedUnit) error {
 	// Cache space IDs to avoid redundant lookups/creates
 	spaceCache := make(map[string]goclientnew.UUID)
+
+	// Build a map of space labels for quick lookup
+	spaceLabels := make(map[string]map[string]string)
+	for _, space := range spaces {
+		spaceLabels[space.Name] = space.Labels
+	}
 
 	for _, unit := range units {
 		fmt.Printf("Syncing %s/%s...\n", unit.SpaceName, unit.UnitName)
@@ -143,7 +149,8 @@ func (s *Syncer) SyncUp(ctx context.Context, units []pkgconfig.ResolvedUnit) err
 		spaceID, ok := spaceCache[unit.SpaceName]
 		if !ok {
 			var err error
-			spaceID, err = s.ensureSpace(ctx, unit.SpaceName)
+			labels := spaceLabels[unit.SpaceName]
+			spaceID, err = s.ensureSpace(ctx, unit.SpaceName, labels)
 			if err != nil {
 				return fmt.Errorf("failed to ensure space %s: %w", unit.SpaceName, err)
 			}
@@ -257,7 +264,7 @@ func (s *Syncer) getSpaceID(ctx context.Context, spaceSlug string) (goclientnew.
 }
 
 // ensureSpace looks up a space by slug; creates it if it doesn't exist
-func (s *Syncer) ensureSpace(ctx context.Context, spaceSlug string) (goclientnew.UUID, error) {
+func (s *Syncer) ensureSpace(ctx context.Context, spaceSlug string, labels map[string]string) (goclientnew.UUID, error) {
 	// Try to find existing space
 	where := fmt.Sprintf("Slug = '%s'", spaceSlug)
 	params := &goclientnew.ListSpacesParams{
@@ -287,6 +294,11 @@ func (s *Syncer) ensureSpace(ctx context.Context, spaceSlug string) (goclientnew
 	createBody := goclientnew.Space{
 		Slug:        spaceSlug,
 		DisplayName: spaceSlug,
+	}
+
+	// Add labels if present
+	if len(labels) > 0 {
+		createBody.Labels = labels
 	}
 
 	createResp, err := s.client.CreateSpaceWithResponse(ctx, nil, createBody)

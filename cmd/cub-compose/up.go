@@ -46,13 +46,16 @@ func runUp(dryRun bool) error {
 	// Set verbose mode
 	compose.Verbose = verbose
 
+	// Resolve spaces (for labels)
+	spaces := executor.ResolveSpaces(cfg)
+
 	fmt.Println("Resolving units...")
 	units, err := executor.ResolveUnits(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to resolve units: %w", err)
 	}
 
-	fmt.Printf("Found %d units to sync\n", len(units))
+	fmt.Printf("Found %d spaces and %d units to sync\n", len(spaces), len(units))
 
 	if verbose {
 		for _, u := range units {
@@ -76,7 +79,7 @@ func runUp(dryRun bool) error {
 	}
 
 	fmt.Println("\nSyncing to ConfigHub...")
-	if err := syncer.SyncUp(context.Background(), units); err != nil {
+	if err := syncer.SyncUp(context.Background(), spaces, units); err != nil {
 		return fmt.Errorf("failed to sync: %w", err)
 	}
 

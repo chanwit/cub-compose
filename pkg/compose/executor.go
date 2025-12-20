@@ -28,9 +28,62 @@ func NewExecutor() (*Executor, error) {
 	return &Executor{gitManager: gitMgr}, nil
 }
 
+// buildBaseLabels creates base labels from project name and common-labels
+func buildBaseLabels(cfg *config.ComposeConfig) map[string]string {
+	labels := make(map[string]string)
+	// Add Project label if project name is set
+	if cfg.Project != "" {
+		labels["Project"] = cfg.Project
+	}
+	// Add common-labels
+	for k, v := range cfg.CommonLabels {
+		labels[k] = v
+	}
+	return labels
+}
+
+// applySpacePrefix applies the space prefix if configured
+func applySpacePrefix(cfg *config.ComposeConfig, spaceName string) string {
+	if cfg.SpacePrefix != "" {
+		return cfg.SpacePrefix + spaceName
+	}
+	return spaceName
+}
+
+// ResolveSpaces returns all unique spaces with their labels
+func (e *Executor) ResolveSpaces(cfg *config.ComposeConfig) []config.ResolvedSpace {
+	baseLabels := buildBaseLabels(cfg)
+	seen := make(map[string]bool)
+	var spaces []config.ResolvedSpace
+
+	for _, repoCfg := range cfg.Configs {
+		for spaceName := range repoCfg.Spaces {
+			fullName := applySpacePrefix(cfg, spaceName)
+			if seen[fullName] {
+				continue
+			}
+			seen[fullName] = true
+
+			// Copy base labels for this space
+			labels := make(map[string]string)
+			for k, v := range baseLabels {
+				labels[k] = v
+			}
+
+			spaces = append(spaces, config.ResolvedSpace{
+				Name:   fullName,
+				Labels: labels,
+			})
+		}
+	}
+
+	return spaces
+}
+
 // ResolveUnits clones repos and executes commands for all units
 func (e *Executor) ResolveUnits(cfg *config.ComposeConfig) ([]config.ResolvedUnit, error) {
 	var resolved []config.ResolvedUnit
+	baseLabels := buildBaseLabels(cfg)
 
 	// Process each repo
 	for _, repoCfg := range cfg.Configs {
@@ -44,6 +97,8 @@ func (e *Executor) ResolveUnits(cfg *config.ComposeConfig) ([]config.ResolvedUni
 			if space == nil || len(space.Units) == 0 {
 				continue
 			}
+
+			fullSpaceName := applySpacePrefix(cfg, spaceName)
 
 			// Process each unit
 			for unitName, unit := range space.Units {
@@ -63,8 +118,11 @@ func (e *Executor) ResolveUnits(cfg *config.ComposeConfig) ([]config.ResolvedUni
 					return nil, fmt.Errorf("failed to resolve %s/%s: %w", spaceName, unitName, err)
 				}
 
-				// Merge labels: repo-level unitLabels + unit-level labels
+				// Merge labels: base (project + common) + repo-level unit-labels + unit-level labels
 				labels := make(map[string]string)
+				for k, v := range baseLabels {
+					labels[k] = v
+				}
 				for k, v := range repoCfg.UnitLabels {
 					labels[k] = v
 				}
@@ -74,7 +132,7 @@ func (e *Executor) ResolveUnits(cfg *config.ComposeConfig) ([]config.ResolvedUni
 
 				resolved = append(resolved, config.ResolvedUnit{
 					RepoURL:   repoCfg.Repo,
-					SpaceName: spaceName,
+					SpaceName: fullSpaceName,
 					UnitName:  unitName,
 					Dir:       unit.Dir,
 					Cmd:       unit.Cmd,

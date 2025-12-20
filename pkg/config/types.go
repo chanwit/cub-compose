@@ -2,14 +2,17 @@ package config
 
 // ComposeConfig represents the root structure of configs.yaml
 type ComposeConfig struct {
-	Configs []RepoConfig `yaml:"configs"`
+	Project      string            `yaml:"project,omitempty"`       // project name, adds Project label to all entities
+	SpacePrefix  string            `yaml:"space-prefix,omitempty"`  // prefix for all space names
+	CommonLabels map[string]string `yaml:"common-labels,omitempty"` // labels for all entities (spaces and units)
+	Configs      []RepoConfig      `yaml:"configs"`
 }
 
 // RepoConfig represents a Git repository with its spaces
 type RepoConfig struct {
 	Repo       string            `yaml:"repo"`
-	Ref        string            `yaml:"ref,omitempty"`        // branch or tag
-	UnitLabels map[string]string `yaml:"unitLabels,omitempty"` // labels for all units in this repo
+	Ref        string            `yaml:"ref,omitempty"`         // branch or tag
+	UnitLabels map[string]string `yaml:"unit-labels,omitempty"` // labels for all units in this repo
 	Spaces     map[string]*Space `yaml:"spaces"`
 }
 
@@ -26,13 +29,19 @@ type Unit struct {
 	Labels map[string]string `yaml:"labels,omitempty"` // labels for this unit
 }
 
+// ResolvedSpace contains the resolved data for a space
+type ResolvedSpace struct {
+	Name   string            // full space name (with prefix applied)
+	Labels map[string]string // merged labels (project + common)
+}
+
 // ResolvedUnit contains the resolved data for a unit
 type ResolvedUnit struct {
 	RepoURL   string
-	SpaceName string
+	SpaceName string            // full space name (with prefix applied)
 	UnitName  string
 	Dir       string
 	Cmd       string
-	Labels    map[string]string // merged labels (repo + unit)
+	Labels    map[string]string // merged labels (project + common + repo + unit)
 	Content   []byte            // resolved config content after cmd execution or file read
 }
