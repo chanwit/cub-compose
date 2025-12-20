@@ -21,6 +21,18 @@ const (
 	defaultServerURL = "https://hub.confighub.com"
 )
 
+// mergeLabels merges existing labels with new labels (new takes precedence)
+func mergeLabels(existing, new map[string]string) map[string]string {
+	merged := make(map[string]string)
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for k, v := range new {
+		merged[k] = v
+	}
+	return merged
+}
+
 // resolveTokenPath resolves a token file path, handling ~ prefix like the SDK does
 func resolveTokenPath(home, tokenFile string) string {
 	if filepath.IsAbs(tokenFile) {
@@ -253,8 +265,8 @@ func (s *Syncer) SyncUp(ctx context.Context, spaces []pkgconfig.ResolvedSpace, u
 		}
 
 		if existingUnit != nil {
-			// Update existing unit
-			err = s.updateUnit(ctx, spaceID, existingUnit.UnitID, unit)
+			// Update existing unit (merges labels with existing)
+			err = s.updateUnit(ctx, spaceID, existingUnit.UnitID, existingUnit, unit)
 		} else {
 			// Create new unit
 			err = s.createUnit(ctx, spaceID, unit)
@@ -369,12 +381,30 @@ func (s *Syncer) ensureSpace(ctx context.Context, spaceSlug string, labels map[s
 		return goclientnew.UUID{}, fmt.Errorf("failed to list spaces: %s", resp.Status())
 	}
 
-	// Space exists, return its ID
+	// Space exists, merge labels and update if needed
 	if resp.JSON200 != nil && len(*resp.JSON200) > 0 {
 		extSpace := (*resp.JSON200)[0]
 		if extSpace.Space == nil {
 			return goclientnew.UUID{}, fmt.Errorf("space %q has no Space data", spaceSlug)
 		}
+
+		// Merge labels: existing ConfigHub labels + YAML labels (YAML wins)
+		mergedLabels := mergeLabels(extSpace.Space.Labels, labels)
+		if len(mergedLabels) > 0 {
+			updateBody := goclientnew.Space{
+				Slug:        spaceSlug,
+				DisplayName: extSpace.Space.DisplayName,
+				Labels:      mergedLabels,
+			}
+			updateResp, err := s.client.UpdateSpaceWithResponse(ctx, extSpace.Space.SpaceID, nil, updateBody)
+			if err != nil {
+				return goclientnew.UUID{}, fmt.Errorf("failed to update space labels: %w", err)
+			}
+			if updateResp.StatusCode() != http.StatusOK {
+				return goclientnew.UUID{}, fmt.Errorf("failed to update space labels: %s", updateResp.Status())
+			}
+		}
+
 		return extSpace.Space.SpaceID, nil
 	}
 
@@ -457,8 +487,8 @@ func (s *Syncer) createUnit(ctx context.Context, spaceID goclientnew.UUID, unit 
 	return nil
 }
 
-// updateUnit updates an existing unit's data
-func (s *Syncer) updateUnit(ctx context.Context, spaceID, unitID goclientnew.UUID, unit pkgconfig.ResolvedUnit) error {
+// updateUnit updates an existing unit's data, merging labels with existing ones
+func (s *Syncer) updateUnit(ctx context.Context, spaceID, unitID goclientnew.UUID, existingUnit *goclientnew.Unit, unit pkgconfig.ResolvedUnit) error {
 	toolchainType := string(workerapi.ToolchainKubernetesYAML)
 	body := goclientnew.Unit{
 		Slug:          unit.UnitName,
@@ -467,9 +497,10 @@ func (s *Syncer) updateUnit(ctx context.Context, spaceID, unitID goclientnew.UUI
 		ToolchainType: toolchainType,
 	}
 
-	// Add labels if present
-	if len(unit.Labels) > 0 {
-		body.Labels = unit.Labels
+	// Merge labels: existing ConfigHub labels + YAML labels (YAML wins)
+	mergedLabels := mergeLabels(existingUnit.Labels, unit.Labels)
+	if len(mergedLabels) > 0 {
+		body.Labels = mergedLabels
 	}
 
 	resp, err := s.client.UpdateUnitWithResponse(ctx, spaceID, unitID, nil, body)
